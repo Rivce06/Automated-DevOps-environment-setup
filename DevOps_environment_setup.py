@@ -409,6 +409,70 @@ def confirm_commit_or_stash():
         else:
             print("❌ Invalid option, please enter 'c', 's', or 'a'.")
 
+#########
+
+def get_deleted_tracked_files():
+    """Returns a list of deleted tracked files."""
+    proc = run_git_command(["git", "status", "--porcelain"], capture_output=True)
+    deleted = []
+    for line in proc.stdout.strip().splitlines():
+        if line.startswith(" D "):  # Tracked file deleted (in index)
+            deleted.append(line[3:])
+    return deleted
+
+def recover_deleted_files():
+    print("\n🔁 Recover Deleted Files")
+
+    proc = run_git_command(["git", "log", "-1", "--pretty=format:%H"], capture_output=True)
+    last_commit = proc.stdout.strip()
+
+    proc = run_git_command(["git", "diff-tree", "--no-commit-id", "--diff-filter=D", "--name-only", "-r", last_commit], capture_output=True)
+    deleted_files = proc.stdout.strip().splitlines()
+
+    if not deleted_files:
+        print("✅ No deleted files found in the last commit.")
+        return
+
+    print("🗑️ Files deleted in last commit:")
+    for i, file in enumerate(deleted_files, 1):
+        print(f"  {i}. {file}")
+
+    indices = input("\nSelect files to recover (e.g., 1 2 3) or [a]ll / [n]one: ").strip().lower()
+
+    if indices == "n":
+        print("🚫 Recovery cancelled.")
+        return
+    elif indices == "a":
+        to_restore = deleted_files
+    else:
+        try:
+            selected = [int(i) - 1 for i in indices.split()]
+            to_restore = [deleted_files[i] for i in selected if 0 <= i < len(deleted_files)]
+        except ValueError:
+            print("❌ Invalid input. Recovery aborted.")
+            return
+
+    if not to_restore:
+        print("🚫 No files selected for recovery.")
+        return
+
+    for file in to_restore:
+        run_git_command(["git", "checkout", f"{last_commit}^", "--", file])
+        print(f"✅ Recovered: {file}")
+
+    run_git_command(["git", "add"] + to_restore)
+    run_git_command(["git", "commit", "-m", "🔁 Recovered deleted files"])
+
+    push = input("📤 Push the recovered files to remote? [y/n]: ").strip().lower()
+    if push == "y":
+        run_git_command(["git", "push"])
+        print("✅ Recovery pushed.")
+    else:
+        print("💾 Recovery committed locally. Don't forget to push later.")
+
+
+#########
+
 def setup_git_remote():
     print("\n🔗 Git Remote Setup")
 
@@ -520,6 +584,20 @@ def setup_git_remote():
     # Step 9: Pull with rebase to avoid push conflicts
     print(f"🔄 Rebasing from origin/{branch}...")
     run_git_command(["git", "pull", "--rebase", "origin", branch], check=False)
+
+    # Step 9.9: Check for deleted tracked files
+    deleted_files = get_deleted_tracked_files()
+    if deleted_files:
+        print("⚠️ You're about to delete the following tracked files:")
+        for f in deleted_files:
+            print(f"   🗑️ {f}")
+        confirm_delete = input("❗ Are you sure you want to proceed with these deletions? [y/n]: ").strip().lower()
+        if confirm_delete != "y":
+            print("🚫 Push cancelled by user to prevent unintended deletions.")
+            recover_now = input("❓ Do you want to recover those files instead? [y/n]: ").strip().lower()
+            if recover_now == "y":
+                recover_deleted_files()
+        return
 
     # Step 10: Push
     print(f"🚀 Pushing to origin/{branch}...")
