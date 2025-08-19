@@ -171,7 +171,7 @@ def install_app(app):
                            "docker-buildx-plugin docker-compose-plugin", shell=True, check=True)
             
             print(f"✅ {app} has been installed successfully.")
-            result = subprocess.run([app, "version"], check=True, capture_output=True, text=True)
+            result = subprocess.run([app, "--version"], check=True, capture_output=True, text=True)
             print(f"Current {app} version: {result.stdout.strip()}")
 
         elif app == "kubectl":
